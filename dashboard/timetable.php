@@ -724,36 +724,43 @@ $generator = new TimetableGenerator($db);
             <!-- ============================================================== -->
             <div class="row">
                 <div class="col-md-12">
-
+                    <!-- Action Buttons Card -->
                     <div class="card">
-
-                        <div class="card-body">
-                            <form method="POST" action="">
-                                <div class="row mb-4">
-                                    <div class="col-md-12">
-                                     <button type="submit" class="btn btn-primary btn-lg btn-block"
-                                            name="generate-timetable-btn" style="font-size:20px">Generate
-                                            Timetable <i class="fa fa-refresh"></i></button>
-                                    </div>
-                                </div>
+                        <div class="card-body d-flex justify-content-between align-items-center">
+                            <form method="POST" action="" class="me-3">
+                                <button type="submit" class="btn btn-primary btn-lg" name="generate-timetable-btn">
+                                    <i class="fa fa-refresh me-2"></i>Generate Timetable
+                                </button>
                             </form>
+                            
+                            <a href="timetable.csv" download class="btn btn-success btn-lg">
+                                <i class="fa fa-download me-2"></i>Download Timetable
+                            </a>
                         </div>
+                    </div>
 
-                    </div>
-                    <div class="row mt-4">
-                        <div class="col"></div>
-                        <div class="col mt-4">
-                            <a href="timetable.csv" download class="btn btn-outline-success btn-lg"
-                                style="font-size:30px">
-                                DOWNLOAD
-                                TIMETABLE <i class="fa fa-download"></i></a>
+                    <!-- Status Messages -->
+                    <?php if (isset($_SESSION['timetable_generation'])): ?>
+                        <div class="alert <?php echo $_SESSION['timetable_generation']['success'] ? 'alert-success' : 'alert-danger'; ?> alert-dismissible fade show mt-3">
+                            <?php if ($_SESSION['timetable_generation']['success']): ?>
+                                <strong>Success!</strong> Timetable generated with fitness score: <?php echo $_SESSION['timetable_generation']['fitness']; ?>
+                                <?php if (isset($_SESSION['timetable_generation']['clash_count'])): ?>
+                                    <br>Number of clashes: <?php echo $_SESSION['timetable_generation']['clash_count']; ?>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <strong>Error!</strong> <?php echo $_SESSION['timetable_generation']['error']; ?>
+                            <?php endif; ?>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                         </div>
-                        <div class="col"></div>
+                        <?php unset($_SESSION['timetable_generation']); ?>
+                    <?php endif; ?>
+
+                    <!-- Timetable Display -->
+                    <div class="mt-4">
+                        <?php echo $generator->displayTimetable(); ?>
                     </div>
-                    <?php                                 
-                   echo $generator->displayTimetable()
-                 ?>
                 </div>
+            </div>
                 
             </div>
         </div>
