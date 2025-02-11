@@ -19,291 +19,608 @@ if ($_SESSION['role_name'] !== 'Admin') {
 }
 
 
-//generate timetable function
-function generateTimetable() {
-        //GET database connection string inside function
-        global $db;
+//generate timetable class
+// First, try to increase PHP execution time limit at runtime
+ini_set('max_execution_time', 300); // Set to 5 minutes
+ini_set('memory_limit', '256M');    // Increase memory limit if needed
 
-            // SQL query to delete all rows in the table
-            $delete_query = "DELETE FROM unit_room_time_day_allocation_details";
-            mysqli_query($db, $delete_query);
-
-            $delete_id_query = "ALTER TABLE unit_room_time_day_allocation_details DROP COLUMN id";
-            mysqli_query($db, $delete_id_query);
+class TimeTableChromosome {
+    private $schedule;
+    private $fitness;
+    private $db;
+    private $clashCache; // Add cache to store clash information
+    
+    
+    public function __construct($db) {
+        $this->db = $db;
+        $this->schedule = array();
+        $this->fitness = 0;
+        $this->clashCache = null;
+    }
+    
+    // Initialize random schedule
+    public function initializeRandom($units, $rooms, $timeslots) {
+        foreach ($units as $unit) {
+            $day = array_rand($timeslots);
+            $time = array_rand($timeslots[$day]);
+            $room = $rooms[array_rand($rooms)];
             
-            $update_id_query = "ALTER TABLE unit_room_time_day_allocation_details ADD id INT AUTO_INCREMENT PRIMARY KEY FIRST";
-            mysqli_query($db, $update_id_query);
-
-
-        //STEP 1: Initialize arrays to store units, lecturers, courses, departments, schools, rooms, and time slots
-        $units = array();
-        $rooms = array();
-        // create an array to keep track of assigned units
-        $assigned_units = array();
-        $assigned_rooms = array();
+            $this->schedule[] = [
+                'unit_id' => $unit['unit_id'],
+                'unit_type' => $unit['unit_type'],
+                'lecturer_id' => $unit['lecturer_id'],
+                'group_number' => $unit['group_number'],
+                'day' => $day,
+                'timeslot' => $timeslots[$day][$time],
+                'room_id' => $room['room_id'],
+                'room_type' => $room['room_type'],
+                'room_capacity' => $room['capacity']
+            ];
+        }
+    }
+    
+    // Calculate fitness score
+    public function calculateFitness() {
+        $this->fitness = 100; // Start with perfect score
+        $clashes = $this->detectClashes();
         
-        //STEP 2: FETCH TIME SLOTS AND POPULATE TIMESLOTS ARRAY
-        $timeslots = array(
-            'Monday' => array(
-                '07:00-09:00', '09:00-11:00', '11:00-13:00', '13:00-15:00', '15:00-17:00', '17:00-19:00'
-            ),
-            'Tuesday' => array(
-                '07:00-09:00', '09:00-11:00', '11:00-13:00', '13:00-15:00', '15:00-17:00', '17:00-19:00'
-            ),
-            'Wednesday' => array(
-                '07:00-09:00', '09:00-11:00', '11:00-13:00', '13:00-15:00', '15:00-17:00', '17:00-19:00'
-            ),
-            'Thursday' => array(
-                '07:00-09:00', '09:00-11:00', '11:00-13:00', '13:00-15:00', '15:00-17:00', '17:00-19:00'
-            ),
-            'Friday' => array(
-                '07:00-09:00', '09:00-11:00', '11:00-13:00', '13:00-15:00', '15:00-17:00', '17:00-19:00'
-            ),
-        );
+        // Deduct points for each type of clash
+        foreach ($clashes as $clash) {
+            switch ($clash['type']) {
+                case 'room_double_booking':
+                    $this->fitness -= 10;
+                    break;
+                case 'lecturer_double_booking':
+                    $this->fitness -= 10;
+                    break;
+                case 'room_capacity':
+                    $this->fitness -= 5;
+                    break;
+                case 'room_type_mismatch':
+                    $this->fitness -= 5;
+                    break;
+            }
+        }
+        
+        return $this->fitness;
+    }
+    
+    // Detect different types of clashes
+    public function detectClashes() {
+        // Return cached clashes if available
+        if ($this->clashCache !== null) {
+            return $this->clashCache;
+        }
 
-        //STEP 3: GET ROOM DETAILS AND PUSH THEM TO rooms array
-        $rooms_query = "SELECT * FROM room_details
-        INNER JOIN room_type_details ON room_type_details.room_type_id =room_details.room_type_id";
-        $room_results = mysqli_query($db,$rooms_query);
-        //populate room array
-        // Loop through the room results and add each room to the $rooms array
-        while ($room = mysqli_fetch_assoc($room_results)) {
-                $rooms[] = array(
+        $clashes = array();
+        
+        // Create indexes for faster lookup
+        $roomIndex = [];
+        $lecturerIndex = [];
+        
+        // Build indexes
+        foreach ($this->schedule as $i => $slot) {
+            $key = $slot['day'] . '_' . $slot['timeslot'] . '_' . $slot['room_id'];
+            $lecturerKey = $slot['day'] . '_' . $slot['timeslot'] . '_' . $slot['lecturer_id'];
+            
+            // Check room double booking using index
+            if (isset($roomIndex[$key])) {
+                $clashes[] = [
+                    'type' => 'room_double_booking',
+                    'units' => [$slot['unit_id'], $this->schedule[$roomIndex[$key]]['unit_id']],
+                    'room' => $slot['room_id']
+                ];
+            }
+            $roomIndex[$key] = $i;
+            
+            // Check lecturer double booking using index
+            if (isset($lecturerIndex[$lecturerKey])) {
+                $clashes[] = [
+                    'type' => 'lecturer_double_booking',
+                    'lecturer' => $slot['lecturer_id'],
+                    'units' => [$slot['unit_id'], $this->schedule[$lecturerIndex[$lecturerKey]]['unit_id']]
+                ];
+            }
+            $lecturerIndex[$lecturerKey] = $i;
+            
+            // Check room capacity and type (these don't need indexing)
+            if ($slot['group_number'] > $slot['room_capacity']) {
+                $clashes[] = [
+                    'type' => 'room_capacity',
+                    'unit' => $slot['unit_id'],
+                    'room' => $slot['room_id']
+                ];
+            }
+            
+            if (!$this->isRoomTypeCompatible($slot['unit_type'], $slot['room_type'])) {
+                $clashes[] = [
+                    'type' => 'room_type_mismatch',
+                    'unit' => $slot['unit_id'],
+                    'room' => $slot['room_id']
+                ];
+            }
+        }
+        
+        // Cache the results
+        $this->clashCache = $clashes;
+        return $clashes;
+    }
+    
+    // Invalidate cache when schedule changes
+    public function setSchedule($schedule) {
+        $this->schedule = $schedule;
+        $this->clashCache = null; // Invalidate cache
+    }
+    
+    // Helper function to check room type compatibility
+    private function isRoomTypeCompatible($unitType, $roomType) {
+        $compatibility = [
+            'Theory' => ['Standard'],
+            'ICT-Practical' => ['ICT Labaratory'],
+            'ELECT-Practical' => ['Electronics LAB']
+        ];
+        
+        return in_array($roomType, $compatibility[$unitType] ?? []);
+    }
+    
+    // Crossover operation
+    public function crossover($partner) {
+        $child = new TimeTableChromosome($this->db);
+        $crossoverPoint = rand(0, count($this->schedule) - 1);
+        
+        $childSchedule = array_merge(
+            array_slice($this->schedule, 0, $crossoverPoint),
+            array_slice($partner->getSchedule(), $crossoverPoint)
+        );
+        
+        $child->setSchedule($childSchedule);
+        return $child;
+    }
+    
+    // Mutation operation
+    public function mutate($rooms, $timeslots, $mutationRate = 0.1) {
+        foreach ($this->schedule as &$slot) {
+            if (rand(0, 100) / 100 < $mutationRate) {
+                // Randomly change either room, day, or timeslot
+                $mutation = rand(0, 2);
+                switch ($mutation) {
+                    case 0: // Change room
+                        $newRoom = $rooms[array_rand($rooms)];
+                        $slot['room_id'] = $newRoom['room_id'];
+                        $slot['room_type'] = $newRoom['room_type'];
+                        $slot['room_capacity'] = $newRoom['capacity'];
+                        break;
+                    case 1: // Change day
+                        $newDay = array_rand($timeslots);
+                        $slot['day'] = $newDay;
+                        break;
+                    case 2: // Change timeslot
+                        $day = $slot['day'];
+                        $newTime = array_rand($timeslots[$day]);
+                        $slot['timeslot'] = $timeslots[$day][$newTime];
+                        break;
+                }
+            }
+        }
+    }
+    
+    // Getters and setters
+    public function getSchedule() {
+        return $this->schedule;
+    }
+    
+   
+    
+    public function getFitness() {
+        return $this->fitness;
+    }
+}
+
+class TimetableGenerator {
+    private $db;
+    private $populationSize;
+    private $generations;
+    private $units;
+    private $rooms;
+    private $timeslots;
+    private $maxExecutionTime;
+    
+    private const ITEMS_PER_PAGE = 10;
+    private $currentPage = 1;
+    
+    public function __construct($db, $populationSize = 50, $generations = 100, $maxExecutionTime = 240) {
+        $this->db = $db;
+        $this->populationSize = $populationSize;
+        $this->generations = $generations;
+        $this->maxExecutionTime = $maxExecutionTime;
+        $this->initializeData();
+    }
+    
+    private function initializeData() {
+        // Initialize timeslots (using existing structure)
+        $this->timeslots = [
+            'Monday' => ['07:00-09:00', '09:00-11:00', '11:00-13:00', '13:00-15:00', '15:00-17:00', '17:00-19:00'],
+            'Tuesday' => ['07:00-09:00', '09:00-11:00', '11:00-13:00', '13:00-15:00', '15:00-17:00', '17:00-19:00'],
+            'Wednesday' => ['07:00-09:00', '09:00-11:00', '11:00-13:00', '13:00-15:00', '15:00-17:00', '17:00-19:00'],
+            'Thursday' => ['07:00-09:00', '09:00-11:00', '11:00-13:00', '13:00-15:00', '15:00-17:00', '17:00-19:00'],
+            'Friday' => ['07:00-09:00', '09:00-11:00', '11:00-13:00', '13:00-15:00', '15:00-17:00', '17:00-19:00']
+        ];
+        
+        // Fetch rooms and units from database (using existing queries)
+        $this->fetchRooms();
+        $this->fetchUnits();
+    }
+    
+    private function fetchRooms() {
+        $query = "SELECT * FROM room_details
+                 INNER JOIN room_type_details ON room_type_details.room_type_id = room_details.room_type_id";
+        $result = mysqli_query($this->db, $query);
+        $this->rooms = [];
+        while ($room = mysqli_fetch_assoc($result)) {
+            $this->rooms[] = [
                 'room_id' => $room['room_id'],
                 'room_name' => $room['room_name'],
                 'capacity' => $room['room_capacity'],
                 'room_type' => $room['room_type']
-            );
+            ];
         }
-
-        //STEP 4: Get unit details
-        $units_query = "SELECT * FROM unit_details 
-                        INNER JOIN lecturer_unit_details ON lecturer_unit_details.unit_id = unit_details.unit_code 
-                        INNER JOIN user_details ON user_details.pf_number = lecturer_unit_details.lecturer_id
-                        INNER JOIN unit_semester_details ON unit_semester_details.unit_id = lecturer_unit_details.unit_id
-                        INNER JOIN semester_details ON semester_details.semester_id = unit_semester_details.semester_id
-                        INNER JOIN unit_course_details ON unit_course_details.unit_id = lecturer_unit_details.unit_id
-                        INNER JOIN course_details ON course_details.course_id = unit_course_details.course_id
-                        INNER JOIN course_group_details ON course_group_details.course_id = course_group_details.course_id
-                        GROUP BY unit_details.unit_code ORDER BY unit_details.unit_code ASC";
-
-        $unit_results = mysqli_query($db, $units_query);
-
-        if (mysqli_num_rows($unit_results) > 0) {
-            // Push Unit_results to the $units array
-            while ($row = mysqli_fetch_assoc($unit_results)) {
-                $units[] = $row; // Add each row to the $units array
-            }
-
-            //SAVE UNIT AND LECTURER TEACHING THE UNIT IN A CSV FILE
-            // Create a file pointer for the CSV file
-            $fp = fopen('unit_lecturer_details.csv', 'w');
-
-            // Write the headers for the CSV file
-            fputcsv($fp, array('Unit ID', 'Unit Name', 'Lecturer ID', 'Lecturer Name', 'Semester', 'Course Name', 'Course Group'));
-
-            // Loop through the results and write each row to the CSV file
-            foreach ($units as $unit) {
-                fputcsv($fp, array($unit['unit_id'], $unit['unit_name'], $unit['pf_number'], $unit['user_firstname']." ".$unit['user_lastname'], $unit['semester_id'], $unit['course_shortform'], $unit['academic_year_id']));
-            }
-
-            // Close the file pointer
-            fclose($fp);
-
-
-        } else {
-            // IF Query did not return any rows OR
-            // Query was not successful
-            $error_message = mysqli_error($db);
-
-            // Display an error message to the user or log the error for further investigation
-            echo "Error: " . $error_message;
+    }
+    
+    private function fetchUnits() {
+        // Using existing complex query
+        $query = "SELECT DISTINCT unit_details.*, lecturer_unit_details.*, user_details.*, 
+                 unit_semester_details.*, semester_details.*, unit_course_details.*, 
+                 course_details.*, course_group_details.*
+                 FROM unit_details 
+                 INNER JOIN lecturer_unit_details ON lecturer_unit_details.unit_id = unit_details.unit_code 
+                 INNER JOIN user_details ON user_details.pf_number = lecturer_unit_details.lecturer_id
+                 INNER JOIN unit_semester_details ON unit_semester_details.unit_id = lecturer_unit_details.unit_id
+                 INNER JOIN semester_details ON semester_details.semester_id = unit_semester_details.semester_id
+                 INNER JOIN unit_course_details ON unit_course_details.unit_id = lecturer_unit_details.unit_id
+                 INNER JOIN course_details ON course_details.course_id = unit_course_details.course_id
+                 INNER JOIN course_group_details ON course_group_details.course_id = course_details.course_id
+                 ORDER BY unit_details.unit_code ASC";
+        $result = mysqli_query($this->db, $query);
+        $this->units = [];
+        while ($unit = mysqli_fetch_assoc($result)) {
+            $this->units[] = $unit;
         }
-
-        // STEP 5: ASSIGN UNITS TO TIMESLOTS
-
-        // shuffle the units randomly
-        shuffle($units);
-
-        // open the CSV file for writing
-        $csv_file = fopen('timetable.csv', 'w');
-
-        // write the header row to the CSV file
-        fputcsv($csv_file, array('Unit Code', 'Unit Name', 'Lecturer','Day', 'Time Slot', 'Room'));
-
-        // loop through each unit and assign to a timeslot, room, and day
-        foreach ($units as $unit) {
-            // check if the unit has already been assigned
-            if (in_array($unit['unit_id'], $assigned_units)) {
-                continue;
+    }
+    
+    public function generateTimetable() {
+        $startTime = time();
+        
+        // Initialize population with smaller size initially
+        $population = [];
+        $initialPopulationSize = min($this->populationSize, 20); // Start with smaller population
+        
+        for ($i = 0; $i < $initialPopulationSize; $i++) {
+            if (time() - $startTime > $this->maxExecutionTime) {
+                throw new RuntimeException("Execution time limit exceeded during initialization");
             }
             
-        // shuffle the timeslots, days, and rooms arrays randomly
-        shuffle($timeslots);
-
-        shuffle($rooms);
-
-        // choose a random day from the timeslots array
-        $assigned_day_key = array_rand($timeslots); // choose a random day from the timeslots array
-        $assigned_day = array_keys($timeslots)[$assigned_day_key]; // get the weekday name for the chosen day
-        $random_timeslot = $timeslots[$assigned_day][array_rand($timeslots[$assigned_day])]; // choose a random timeslot for the selected day
+            $chromosome = new TimeTableChromosome($this->db);
+            $chromosome->initializeRandom($this->units, $this->rooms, $this->timeslots);
+            $chromosome->calculateFitness();
+            $population[] = $chromosome;
+        }
         
-        if($assigned_day == 0){
-            $assigned_day = "Monday";
-        }elseif ($assigned_day == 1) {
-            $assigned_day = "Tuesday";
-        }elseif ($assigned_day == 2) {
-            $assigned_day = "Wednesday";
-        }elseif ($assigned_day == 3) {
-            $assigned_day = "Thursday";
-        }elseif ($assigned_day == 4) {
-            $assigned_day = "Friday";
+        $bestFitness = 0;
+        $noImprovementCount = 0;
+        
+        // Evolution process with early stopping
+        for ($generation = 0; $generation < $this->generations; $generation++) {
+            if (time() - $startTime > $this->maxExecutionTime) {
+                // Return best solution found so far if time limit is reached
+                usort($population, function($a, $b) {
+                    return $b->getFitness() - $a->getFitness();
+                });
+                return $this->saveTimetable($population[0]);
+            }
+            
+            // Sort population by fitness
+            usort($population, function($a, $b) {
+                return $b->getFitness() - $a->getFitness();
+            });
+            
+            // Check for perfect solution
+            if ($population[0]->getFitness() == 100) {
+                return $this->saveTimetable($population[0]);
+            }
+            
+            // Early stopping if no improvement
+            if ($population[0]->getFitness() <= $bestFitness) {
+                $noImprovementCount++;
+                if ($noImprovementCount > 10) { // Stop if no improvement for 10 generations
+                    return $this->saveTimetable($population[0]);
+                }
+            } else {
+                $bestFitness = $population[0]->getFitness();
+                $noImprovementCount = 0;
+            }
+            
+            // Create new population with adaptive size
+            $newPopulation = [];
+            $currentPopSize = min($this->populationSize, 
+                                count($population) + 5); // Gradually increase population
+            
+            // Keep top 10% of population (elitism)
+            $eliteCount = max(1, floor($currentPopSize * 0.1));
+            for ($i = 0; $i < $eliteCount; $i++) {
+                $newPopulation[] = $population[$i];
+            }
+            
+            // Create rest of new population
+            while (count($newPopulation) < $currentPopSize) {
+                $parent1 = $this->tournamentSelect($population);
+                $parent2 = $this->tournamentSelect($population);
+                
+                $child = $parent1->crossover($parent2);
+                $child->mutate($this->rooms, $this->timeslots);
+                $child->calculateFitness();
+                
+                $newPopulation[] = $child;
+            }
+            
+            $population = $newPopulation;
+        }
+        
+        // Return best solution found
+        usort($population, function($a, $b) {
+            return $b->getFitness() - $a->getFitness();
+        });
+        
+        return $this->saveTimetable($population[0]);
+    }
+    
+    private function tournamentSelect($population) {
+        $tournamentSize = 5;
+        $tournament = array_rand($population, $tournamentSize);
+        $best = $population[$tournament[0]];
+        
+        for ($i = 1; $i < $tournamentSize; $i++) {
+            if ($population[$tournament[$i]]->getFitness() > $best->getFitness()) {
+                $best = $population[$tournament[$i]];
+            }
+        }
+        
+        return $best;
+    }
+    
+    private function saveTimetable($chromosome) {
+        // Clear existing timetable
+        mysqli_query($this->db, "DELETE FROM unit_room_time_day_allocation_details");
+        mysqli_query($this->db, "ALTER TABLE unit_room_time_day_allocation_details DROP COLUMN id");
+        mysqli_query($this->db, "ALTER TABLE unit_room_time_day_allocation_details ADD id INT AUTO_INCREMENT PRIMARY KEY FIRST");
+        
+        // Save new timetable
+        $schedule = $chromosome->getSchedule();
+        $clashes = $chromosome->detectClashes();
+        
+        // Save to database
+        foreach ($schedule as $slot) {
+            $query = "INSERT INTO unit_room_time_day_allocation_details 
+                     (unit_id, lecturer_id, room_id, time_slot_id, weekday)
+                     VALUES (
+                         '{$slot['unit_id']}',
+                         '{$slot['lecturer_id']}',
+                         '{$slot['room_id']}',
+                         '{$slot['timeslot']}',
+                         '{$slot['day']}'
+                     )";
+            mysqli_query($this->db, $query);
+        }
+        
+        // Save to CSV
+        $fp = fopen('timetable.csv', 'w');
+        fputcsv($fp, ['Unit Code', 'Unit Name', 'Lecturer', 'Day', 'Time Slot', 'Room', 'Clashes']);
+        
+        foreach ($schedule as $slot) {
+            $clashInfo = $this->getClashInfo($slot, $clashes);
+            fputcsv($fp, [
+                $slot['unit_id'],
+                $this->getUnitName($slot['unit_id']),
+                $this->getLecturerName($slot['lecturer_id']),
+                $slot['day'],
+                $slot['timeslot'],
+                $this->getRoomName($slot['room_id']),
+                $clashInfo
+            ]);
+        }
+        fclose($fp);
+        
+        return [
+            'fitness' => $chromosome->getFitness(),
+            'schedule' => $schedule,
+            'clashes' => $clashes
+        ];
+    }
+    
+    private function getClashInfo($slot, $clashes) {
+        $clashInfo = [];
+        foreach ($clashes as $clash) {
+            switch ($clash['type']) {
+                case 'room_double_booking':
+                    if (in_array($slot['unit_id'], $clash['units'])) {
+                        $clashInfo[] = "Room double booked";
+                    }
+                    break;
+                case 'lecturer_double_booking':
+                    if (in_array($slot['unit_id'], $clash['units'])) {
+                        $clashInfo[] = "Lecturer double booked";
+                    }
+                    break;
+                case 'room_capacity':
+                    if ($slot['unit_id'] === $clash['unit']) {
+                        $clashInfo[] = "Room capacity exceeded";
+                    }
+                    break;
+                case 'room_type_mismatch':
+                    if ($slot['unit_id'] === $clash['unit']) {
+                        $clashInfo[] = "Room type mismatch";
+                    }
+                    break;
+            }
+        }
+        return implode(", ", $clashInfo);
+    }
+    
+    private function getUnitName($unitId) {
+        foreach ($this->units as $unit) {
+            if ($unit['unit_id'] === $unitId) {
+                return $unit['unit_name'];
+            }
+        }
+        return '';
+    }
+    
+    private function getLecturerName($lecturerId) {
+        foreach ($this->units as $unit) {
+            if ($unit['lecturer_id'] === $lecturerId) {
+                return $unit['user_title'] . " " . $unit['user_firstname'] . " " . $unit['user_lastname'];
+            }
+        }
+        return '';
+    }
+    
+    private function getRoomName($roomId) {
+        foreach ($this->rooms as $room) {
+            if ($room['room_id'] === $roomId) {
+                return $room['room_name'];
+            }
+        }
+        return '';
+    }
+
+    public function displayTimetable() {
+        $csvFile = 'timetable.csv';
+        
+        // Check if CSV file exists
+        if (!file_exists($csvFile)) {
+            return '<div class="alert alert-danger">No timetable has been generated yet. Click "Generate Timetable" to create one.</div>';
         }
 
-            // loop through each room until a suitable room is found
-            foreach ($rooms as $room) {
-                // check if the room capacity is enough for the unit
-                if ($room['capacity'] >= $unit['group_number']) {
-                    // check if the unit type is Theory or ICT-Practical and allocate the room accordingly
-                    if ($unit['unit_type'] == 'Theory' && $room['room_type'] == 'Standard') {
-                        if (in_array($unit['unit_code'], $assigned_units)) {
-                            continue;
-                        }else{
-
-                        // assign the unit to the timeslot, room, and day
-                        $assignment = array(
-                            'code' => $unit['unit_id'],
-                            'unit' => $unit['unit_name'],
-                            'unit_type'=> $unit['unit_type'],
-                            'lecturer' => $unit['lecturer_id'],
-                            'lecturer_name' => $unit['user_title']." ".$unit['user_firstname']." ".$unit['user_lastname'],
-                            'day' => $assigned_day,
-                            'timeslot' => $random_timeslot,
-                            'room' => $room['room_name']
-                        );
-                        $assigned_rooms[$assigned_day][$random_timeslot][] = $room['room_name'];
-                        $unit_id = $assignment['code'];
-                        $unit_name= $assignment['unit'];
-                        $unit_type= $assignment['unit_type'];
-                        $day = $assignment['day'];
-                        $timeslot = $assignment['timeslot'];
-                        $room = $assignment['room'];
-                        $lec = $assignment['lecturer_name'];
-                        $lec_id =  $assignment['lecturer'];
-
-                        // save the assignment to the CSV file
-                        fputcsv($csv_file, array($unit_id, $unit_name,$lec, $day, $timeslot, $room));
-
-                        // save the assignment to the database or elsewhere
-                        $assignment_query = "INSERT INTO `unit_room_time_day_allocation_details`(`unit_id`,`lecturer_id`, `room_id`, `time_slot_id`, `weekday`)
-                                            VALUES ('$unit_id','$lec_id','$room','$timeslot','$day')";
-                        $assignment_results = mysqli_query($db, $assignment_query);
-
-                        // add the assigned unit to the array of assigned units
-                        $assigned_units[] = $unit['unit_code'];
-
-                        // break out of the room loop
-                        break;
-                    }
-                    } elseif ($unit['unit_type'] == 'ICT-Practical' && $room['room_type'] == 'ICT Labaratory') {
-                        if (in_array($unit['unit_code'], $assigned_units)) {
-                            continue;
-                        }else{
-
-                        // assign the unit to the timeslot, room, and day
-                        $assignment = array(
-                            'code' => $unit['unit_code'],
-                            'unit' => $unit['unit_name'],
-                            'unit_type'=> $unit['unit_type'],
-                            'lecturer' => $unit['lecturer_id'],
-                            'lecturer_name' => $unit['user_title']." ".$unit['user_firstname']." ".$unit['user_lastname'],
-                            'day' => $assigned_day,
-                            'timeslot' => $random_timeslot,
-                            'room' => $room['room_name']
-                        );
-                        $assigned_rooms[$assigned_day][$random_timeslot][] = $room['room_name'];
-                        $unit_id = $assignment['code'];
-                        $unit_name= $assignment['unit'];
-                        $unit_type= $assignment['unit_type'];
-                        $day = $assignment['day'];
-                        $timeslot = $assignment['timeslot'];
-                        $room = $assignment['room'];
-                        $lec = $assignment['lecturer_name'];
-                        $lec_id =  $assignment['lecturer'];
-
-                        // save the assignment to the CSV file
-                        fputcsv($csv_file, array($unit_id, $unit_name,$lec, $day, $timeslot, $room));
-
-                        // save the assignment to the database or elsewhere
-                        $assignment_query = "INSERT INTO `unit_room_time_day_allocation_details`(`unit_id`,`lecturer_id`, `room_id`, `time_slot_id`, `weekday`)
-                                            VALUES ('$unit_id','$lec_id','$room','$timeslot','$day')";
-                        $assignment_results = mysqli_query($db, $assignment_query);
-
-                        // add the assigned unit to the array of assigned units
-                        $assigned_units[] = $unit['unit_code'];
-                        
-                        // break out of the room loop
-                        break;
-                    }
-                    }elseif ($unit['unit_type'] == 'ELECT-Practical' && $room['room_type'] == 'Electronics LAB') {
-                        if (in_array($unit['unit_code'], $assigned_units)) {
-                            continue;
-                        }else{
-
-                        // assign the unit to the timeslot, room, and day
-                        $assignment = array(
-                            'code' => $unit['unit_code'],
-                            'unit' => $unit['unit_name'],
-                            'unit_type'=> $unit['unit_type'],
-                            'lecturer' => $unit['lecturer_id'],
-                            'lecturer_name' => $unit['user_title']." ".$unit['user_firstname']." ".$unit['user_lastname'],
-                            'day' => $assigned_day,
-                            'timeslot' => $random_timeslot,
-                            'room' => $room['room_name']
-                        );
-                        $assigned_rooms[$assigned_day][$random_timeslot][] = $room['room_name'];
-                        $unit_id = $assignment['code'];
-                        $unit_name= $assignment['unit'];
-                        $unit_type= $assignment['unit_type'];
-                        $day = $assignment['day'];
-                        $timeslot = $assignment['timeslot'];
-                        $room = $assignment['room'];
-                        $lec = $assignment['lecturer_name'];
-                        $lec_id =  $assignment['lecturer'];
-
-                        // save the assignment to the CSV file
-                        fputcsv($csv_file, array($unit_id, $unit_name,$lec, $day, $timeslot, $room));
-
-                        // save the assignment to the database or elsewhere
-                        $assignment_query = "INSERT INTO `unit_room_time_day_allocation_details`(`unit_id`,`lecturer_id`, `room_id`, `time_slot_id`, `weekday`)
-                                            VALUES ('$unit_id','$lec_id','$room','$timeslot','$day')";
-                        $assignment_results = mysqli_query($db, $assignment_query);
-
-                        // add the assigned unit to the array of assigned units
-                        $assigned_units[] = $unit['unit_code'];
-                        
-                        // break out of the room loop
-                        break;
-                    }
-                    }
-
-                }
+        $timetableData = [];
+        if (($handle = fopen($csvFile, "r")) !== FALSE) {
+            // Skip header row
+            $header = fgetcsv($handle);
+            
+            // Read data into array
+            while (($data = fgetcsv($handle)) !== FALSE) {
+                $day = $data[3]; // Day column
+                $timetableData[$day][] = $data;
             }
+            fclose($handle);
+        }
 
-    }//end of units loop
+        $html = '<div class="card">
+            <div class="card-body">
+                <h4 class="card-title mb-4">Generated Timetable</h4>
+                <div class="table-responsive">';
 
-    // close the CSV file
-    fclose($csv_file);
+        // Create tabs for each day
+        $html .= '<ul class="nav nav-tabs" role="tablist">';
+        $days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        foreach ($days as $index => $day) {
+            $activeClass = ($index === 0) ? 'active' : '';
+            $html .= "<li class='nav-item'>
+                <a class='nav-link $activeClass' data-bs-toggle='tab' href='#$day' role='tab'>$day</a>
+            </li>";
+        }
+        $html .= '</ul>';
 
-}//END OF FUNCTION
+        // Create tab content
+        $html .= '<div class="tab-content">';
+        foreach ($days as $index => $day) {
+            $activeClass = ($index === 0) ? 'active' : '';
+            $html .= "<div class='tab-pane p-3 $activeClass' id='$day' role='tabpanel'>";
+            
+            // Create table for each day
+            $html .= '<table class="table table-striped table-bordered">
+                <thead>
+                    <tr>
+                        <th>Time Slot</th>
+                        <th>Unit Code</th>
+                        <th>Unit Name</th>
+                        <th>Lecturer</th>
+                        <th>Room</th>
+                        <th>Clashes</th>
+                    </tr>
+                </thead>
+                <tbody>';
+            
+            if (isset($timetableData[$day])) {
+                // Sort by time slot
+                usort($timetableData[$day], function($a, $b) {
+                    return strcmp($a[4], $b[4]); // Compare time slots
+                });
+                
+                foreach ($timetableData[$day] as $slot) {
+                    $clashClass = !empty($slot[6]) ? 'class="table-info"' : '';
+                    $html .= "<tr $clashClass>
+                        <td>{$slot[4]}</td>  <!-- Time Slot -->
+                        <td>{$slot[0]}</td>  <!-- Unit Code -->
+                        <td>{$slot[1]}</td>  <!-- Unit Name -->
+                        <td>{$slot[2]}</td>  <!-- Lecturer -->
+                        <td>{$slot[5]}</td>  <!-- Room -->
+                        <td>{$slot[6]}</td>  <!-- Clashes -->
+                    </tr>";
+                }
+            } else {
+                $html .= "<tr><td colspan='6' class='text-center'>No classes scheduled</td></tr>";
+            }
+            
+            $html .= '</tbody></table>';
+            $html .= '</div>';
+        }
+        $html .= '</div>'; // End tab-content
+        $html .= '</div></div></div>';
+        
+        return $html;
+    }
 
 
-//generate timetable on clicking a button
+}
+
+
+
+
+
+// Usage with error handling
 if (isset($_POST['generate-timetable-btn'])) {
-
-//generate TT
-generateTimetable();
-
+    try {
+        // Set script timeout
+        set_time_limit(300); // 5 minutes
+        
+        // Create generator with custom parameters
+        $generator = new TimetableGenerator(
+            $db,
+            populationSize: 30,    // Reduced population size
+            generations: 50,       // Reduced generations
+            maxExecutionTime: 240  // 4 minutes max execution time
+        );
+        
+        $result = $generator->generateTimetable();
+        
+        $_SESSION['timetable_generation'] = [
+            'success' => true,
+            'fitness' => $result['fitness'],
+            'clash_count' => count($result['clashes'])
+        ];
+        
+        if (!empty($result['clashes'])) {
+            $_SESSION['timetable_clashes'] = $result['clashes'];
+        }
+        
+    } catch (Exception $e) {
+        $_SESSION['timetable_generation'] = [
+            'success' => false,
+            'error' => $e->getMessage()
+        ];
+    }
+    
+    header('Location: ' . $_SERVER['PHP_SELF']);
+    exit;
 }
 
 ?>
@@ -315,6 +632,8 @@ generateTimetable();
     <title>Timetables | EDUTIME</title>
     <?php
 include '../assets/components/header.php';
+$generator = new TimetableGenerator($db);
+
 ?>
 </head>
 
@@ -383,7 +702,7 @@ include '../assets/components/header.php';
                             <form method="POST" action="">
                                 <div class="row mb-4">
                                     <div class="col-md-12">
-                                        <button type="submit" class="btn btn-primary btn-lg btn-block"
+                                     <button type="submit" class="btn btn-primary btn-lg btn-block"
                                             name="generate-timetable-btn" style="font-size:20px">Generate
                                             Timetable <i class="fa fa-refresh"></i></button>
                                     </div>
@@ -402,7 +721,11 @@ include '../assets/components/header.php';
                         </div>
                         <div class="col"></div>
                     </div>
+                    <?php                                 
+                   echo $generator->displayTimetable()
+                 ?>
                 </div>
+                
             </div>
         </div>
         <!-- ============================================================== -->
