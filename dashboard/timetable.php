@@ -178,7 +178,7 @@ class TimeTableChromosome {
     }
     
     // Mutation operation
-    public function mutate($rooms, $timeslots, $mutationRate = 0.1) {
+    public function mutate($rooms, $timeslots, $mutationRate = 0.5) {
         foreach ($this->schedule as &$slot) {
             if (rand(0, 100) / 100 < $mutationRate) {
                 // Randomly change either room, day, or timeslot
@@ -228,7 +228,7 @@ class TimetableGenerator {
     private const ITEMS_PER_PAGE = 10;
     private $currentPage = 1;
     
-    public function __construct($db, $populationSize = 50, $generations = 100, $maxExecutionTime = 240) {
+    public function __construct($db, $populationSize = 700, $generations = 760, $maxExecutionTime = 480) {
         $this->db = $db;
         $this->populationSize = $populationSize;
         $this->generations = $generations;
@@ -497,7 +497,6 @@ class TimetableGenerator {
     public function displayTimetable() {
         $csvFile = 'timetable.csv';
         
-        // Check if CSV file exists
         if (!file_exists($csvFile)) {
             return '<div class="alert alert-danger">No timetable has been generated yet. Click "Generate Timetable" to create one.</div>';
         }
@@ -508,7 +507,6 @@ class TimetableGenerator {
             // Read and discard the header row
             $header = fgetcsv($handle);
             
-            // Group rows by day (assuming day is in column index 3)
             while (($data = fgetcsv($handle)) !== false) {
                 $day = $data[3];
                 $timetableData[$day][] = $data;
@@ -516,11 +514,12 @@ class TimetableGenerator {
             fclose($handle);
         }
         
-        // Get the current page from the URL, default to 1
-        $currentPage = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+        // Get the current page and day from URL parameters
+        $currentPage = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+        $currentDay = isset($_GET['day']) ? $_GET['day'] : 'Monday';
         $itemsPerPage = self::ITEMS_PER_PAGE;
         
-        // Start building the HTML output with a card container
+        // Start building the HTML output
         $html = '<div class="card">
                     <div class="card-body">
                         <h4 class="card-title mb-4">Generated Timetable</h4>
@@ -530,9 +529,10 @@ class TimetableGenerator {
         $days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
         $html .= '<ul class="nav nav-tabs" role="tablist">';
         foreach ($days as $index => $day) {
-            $activeClass = ($index === 0) ? 'active' : '';
+            $activeClass = ($day === $currentDay) ? 'active' : '';
             $html .= "<li class='nav-item'>
-                        <a class='nav-link $activeClass' data-bs-toggle='tab' href='#$day' role='tab'>$day</a>
+                        <a class='nav-link $activeClass' data-bs-toggle='tab' href='#$day' role='tab' 
+                           onclick=\"window.location.href='?day=$day&page=1'\">$day</a>
                       </li>";
         }
         $html .= '</ul>';
@@ -540,13 +540,17 @@ class TimetableGenerator {
         // Create the content for each tab (day)
         $html .= '<div class="tab-content">';
         foreach ($days as $index => $day) {
-            $activeClass = ($index === 0) ? 'active' : '';
+            $activeClass = ($day === $currentDay) ? 'active' : '';
             $html .= "<div class='tab-pane p-3 $activeClass' id='$day' role='tabpanel'>";
             
             // Get all rows for this day
             $rows = isset($timetableData[$day]) ? $timetableData[$day] : [];
             $totalRows = count($rows);
-            $totalPages = ($totalRows > 0) ? ceil($totalRows / $itemsPerPage) : 1;
+            $totalPages = max(1, ceil($totalRows / $itemsPerPage));
+            
+            // Ensure current page is within valid range
+            $currentPage = min(max(1, $currentPage), $totalPages);
+            
             $offset = ($currentPage - 1) * $itemsPerPage;
             $pagedRows = array_slice($rows, $offset, $itemsPerPage);
             
@@ -563,14 +567,13 @@ class TimetableGenerator {
                             </tr>
                         </thead>
                         <tbody>';
+            
             if (!empty($pagedRows)) {
-                // Optionally sort the rows by the time slot (assuming index 4 holds the time slot)
                 usort($pagedRows, function($a, $b) {
                     return strcmp($a[4], $b[4]);
                 });
                 
                 foreach ($pagedRows as $slot) {
-                    // Optionally add a CSS class if there are clashes (assuming clashes are in index 6)
                     $clashClass = !empty($slot[6]) ? 'class="table-info"' : '';
                     $html .= "<tr $clashClass>
                                 <td>{$slot[4]}</td>
@@ -586,20 +589,78 @@ class TimetableGenerator {
             }
             $html .= '</tbody></table>';
             
-            // Create pagination links if there is more than one page
+            // Add pagination if there is more than one page
             if ($totalPages > 1) {
-                $html .= '<nav><ul class="pagination">';
-                for ($p = 1; $p <= $totalPages; $p++) {
-                    $active = ($p == $currentPage) ? 'active' : '';
-                    // Append an anchor to jump back to the current day's tab (e.g., "#Monday")
-                    $html .= "<li class='page-item $active'>
-                                <a class='page-link' href='?page=$p#$day'>$p</a>
-                              </li>";
+                $html .= '<nav aria-label="Timetable pagination">
+                            <ul class="pagination justify-content-center">';
+                
+                // Previous button
+                $prevDisabled = ($currentPage <= 1) ? 'disabled' : '';
+                $prevPage = $currentPage - 1;
+                $html .= "<li class='page-item $prevDisabled'>
+                            <a class='page-link' href='?day=$day&page=$prevPage' aria-label='Previous'>
+                                <span aria-hidden='true'>Previous</span>
+                                <span class='visually-hidden'>Previous</span>
+                            </a>
+                         </li>";
+                
+                // Page numbers
+                $startPage = max(1, $currentPage - 2);
+                $endPage = min($startPage + 4, $totalPages);
+                
+                // Adjust start page if we're near the end
+                if ($endPage - $startPage < 4) {
+                    $startPage = max(1, $endPage - 4);
                 }
+                
+                // First page and ellipsis if needed
+                if ($startPage > 1) {
+                    $html .= "<li class='page-item'><a class='page-link' href='?day=$day&page=1'>1</a></li>";
+                    if ($startPage > 2) {
+                        $html .= "<li class='page-item disabled'><span class='page-link'>...</span></li>";
+                    }
+                }
+                
+                // Page numbers
+                for ($i = $startPage; $i <= $endPage; $i++) {
+                    $activeClass = ($i == $currentPage) ? 'active' : '';
+                    $html .= "<li class='page-item $activeClass'>
+                                <a class='page-link' href='?day=$day&page=$i'>$i</a>
+                             </li>";
+                }
+                
+                // Last page and ellipsis if needed
+                if ($endPage < $totalPages) {
+                    if ($endPage < $totalPages - 1) {
+                        $html .= "<li class='page-item disabled'><span class='page-link'>...</span></li>";
+                    }
+                    $html .= "<li class='page-item'>
+                                <a class='page-link' href='?day=$day&page=$totalPages'>$totalPages</a>
+                             </li>";
+                }
+                
+                // Next button
+                $nextDisabled = ($currentPage >= $totalPages) ? 'disabled' : '';
+                $nextPage = $currentPage + 1;
+                $html .= "<li class='page-item $nextDisabled'>
+                            <a class='page-link' href='?day=$day&page=$nextPage' aria-label='Next'>
+                                <span aria-hidden='true'>Next</span>
+                                <span class='visually-hidden'>Next</span>
+                            </a>
+                         </li>";
+                
                 $html .= '</ul></nav>';
+                
+                // Add page info
+                $html .= "<div class='text-center mt-2'>
+                            <small class='text-muted'>
+                                Page $currentPage of $totalPages 
+                                (showing " . count($pagedRows) . " of $totalRows entries)
+                            </small>
+                         </div>";
             }
             
-            $html .= '</div>'; // End of tab-pane for this day
+            $html .= '</div>'; // End of tab-pane
         }
         $html .= '</div>'; // End of tab-content
         $html .= '</div></div>'; // End of card-body and card
@@ -611,11 +672,21 @@ class TimetableGenerator {
 }
 
 
+function displayAlert($type, $message) {
+    return "<div class='alert alert-$type alert-dismissible fade show'>
+                $message
+                <button type='button' class='btn-close' data-bs-dismiss='alert'></button>
+            </div>";
+}
 
 
 
-// Usage with error handling
 if (isset($_POST['generate-timetable-btn'])) {
+    // Start session to store generation status
+    session_start();
+    $_SESSION['generation_status'] = 'running';
+    $_SESSION['generation_start_time'] = time();
+    
     try {
         // Set script timeout
         set_time_limit(300); // 5 minutes
@@ -623,9 +694,9 @@ if (isset($_POST['generate-timetable-btn'])) {
         // Create generator with custom parameters
         $generator = new TimetableGenerator(
             $db,
-            populationSize: 30,    // Reduced population size
-            generations: 50,       // Reduced generations
-            maxExecutionTime: 240  // 4 minutes max execution time
+            populationSize: 30,
+            generations: 50,
+            maxExecutionTime: 240
         );
         
         $result = $generator->generateTimetable();
@@ -633,7 +704,8 @@ if (isset($_POST['generate-timetable-btn'])) {
         $_SESSION['timetable_generation'] = [
             'success' => true,
             'fitness' => $result['fitness'],
-            'clash_count' => count($result['clashes'])
+            'clash_count' => count($result['clashes']),
+            'generation_time' => time() - $_SESSION['generation_start_time']
         ];
         
         if (!empty($result['clashes'])) {
@@ -647,6 +719,7 @@ if (isset($_POST['generate-timetable-btn'])) {
         ];
     }
     
+    $_SESSION['generation_status'] = 'completed';
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
@@ -667,6 +740,28 @@ $generator = new TimetableGenerator($db);
 
 <body>
     
+
+
+
+<div class="modal fade" id="loadingModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center p-4">
+                <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <h5 class="modal-title mb-3">Generating Timetable</h5>
+                <p class="mb-0">This may take a few minutes. Please don't close this window.</p>
+                <div class="progress mt-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                </div>
+                <p class="mt-2 mb-0" id="timeElapsed">Time elapsed: 0 seconds</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+
     <!-- ============================================================== -->
     <!-- Topbar header - style you can find in pages.scss -->
     <!-- ============================================================== -->
@@ -726,37 +821,42 @@ $generator = new TimetableGenerator($db);
                 <div class="col-md-12">
                     <!-- Action Buttons Card -->
                     <div class="card">
-                        <div class="card-body d-flex justify-content-between align-items-center">
-                            <form method="POST" action="" class="me-3">
-                                <button type="submit" class="btn btn-primary btn-lg" name="generate-timetable-btn">
-                                    <i class="fa fa-refresh me-2"></i>Generate Timetable
-                                </button>
-                            </form>
-                            
-                            <a href="timetable.csv" download class="btn btn-success btn-lg">
-                                <i class="fa fa-download me-2"></i>Download Timetable
-                            </a>
-                        </div>
-                    </div>
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+            <form method="POST" action="" class="me-3" id="generateForm">
+                <button type="submit" class="btn btn-primary btn-lg" name="generate-timetable-btn">
+                    <i class="fa fa-refresh me-2"></i>Generate Timetable
+                </button>
+            </form>
+            
+            <a href="timetable.csv" download class="btn btn-success btn-lg">
+                <i class="fa fa-download me-2"></i>Download Timetable
+            </a>
+        </div>
 
-                    <!-- Status Messages -->
-                    <?php if (isset($_SESSION['timetable_generation'])): ?>
-                        <div class="alert <?php echo $_SESSION['timetable_generation']['success'] ? 'alert-success' : 'alert-danger'; ?> alert-dismissible fade show mt-3">
-                            <?php if ($_SESSION['timetable_generation']['success']): ?>
-                                <strong>Success!</strong> Timetable generated with fitness score: <?php echo $_SESSION['timetable_generation']['fitness']; ?>
-                                <?php if (isset($_SESSION['timetable_generation']['clash_count'])): ?>
-                                    <br>Number of clashes: <?php echo $_SESSION['timetable_generation']['clash_count']; ?>
-                                <?php endif; ?>
-                            <?php else: ?>
-                                <strong>Error!</strong> <?php echo $_SESSION['timetable_generation']['error']; ?>
-                            <?php endif; ?>
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                        </div>
-                        <?php unset($_SESSION['timetable_generation']); ?>
-                    <?php endif; ?>
 
+        
+
+                    <!-- Status Messages Container -->
+        <div id="statusMessages" class="mt-3">
+            <?php if (isset($_SESSION['timetable_generation'])): ?>
+                <?php
+                $status = $_SESSION['timetable_generation'];
+                if ($status['success']) {
+                    $message = "<strong>Success!</strong> Timetable generated successfully.<br>";
+                    $message .= "Fitness Score: {$status['fitness']}<br>";
+                    $message .= "Number of Clashes: {$status['clash_count']}<br>";
+                    $message .= "Generation Time: {$status['generation_time']} seconds";
+                    echo displayAlert('success', $message);
+                } else {
+                    echo displayAlert('danger', "<strong>Error!</strong> {$status['error']}");
+                }
+                unset($_SESSION['timetable_generation']);
+                ?>
+            <?php endif; ?>
+        </div>
                     <!-- Timetable Display -->
-                    <div class="mt-4">
+                    <div class="mt-4 text-center">
                         <?php echo $generator->displayTimetable(); ?>
                     </div>
                 </div>
@@ -805,6 +905,56 @@ $generator = new TimetableGenerator($db);
     <script src="../assets/extra-libs/multicheck/datatable-checkbox-init.js"></script>
     <script src="../assets/extra-libs/multicheck/jquery.multicheck.js"></script>
     <script src="../assets/extra-libs/DataTables/datatables.min.js"></script>
+
+
+    <script>
+let loadingModal;
+let startTime;
+let progressInterval;
+let timeInterval;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    
+    // Handle form submission
+    document.getElementById('generateForm').addEventListener('submit', function(e) {
+        startLoading();
+    });
+    
+    // Check if generation is running on page load
+    <?php if (isset($_SESSION['generation_status']) && $_SESSION['generation_status'] === 'running'): ?>
+    startLoading();
+    <?php endif; ?>
+});
+
+function startLoading() {
+    loadingModal.show();
+    startTime = Date.now();
+    
+    // Update progress bar
+    let progress = 0;
+    progressInterval = setInterval(() => {
+        progress += 0.5;
+        if (progress <= 100) {
+            document.querySelector('.progress-bar').style.width = progress + '%';
+        }
+    }, 1200); // Adjusted to complete in about 4 minutes
+    
+    // Update elapsed time
+    timeInterval = setInterval(updateTimeElapsed, 1000);
+}
+
+function updateTimeElapsed() {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    document.getElementById('timeElapsed').textContent = `Time elapsed: ${elapsed} seconds`;
+}
+
+// Clean up intervals when the modal is hidden
+document.getElementById('loadingModal').addEventListener('hidden.bs.modal', function () {
+    clearInterval(progressInterval);
+    clearInterval(timeInterval);
+});
+</script>
 
 </body>
 
