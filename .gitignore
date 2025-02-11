@@ -15,3 +15,6 @@ yarn-error.log
 # Editor files
 *.swp
 *.swo
+dashboard/timetable.csv
+dashboard/unit_lecturer_details.csv
+server.php
