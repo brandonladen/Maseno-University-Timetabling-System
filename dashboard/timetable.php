@@ -492,6 +492,8 @@ class TimetableGenerator {
         return '';
     }
 
+
+    
     public function displayTimetable() {
         $csvFile = 'timetable.csv';
         
@@ -499,86 +501,112 @@ class TimetableGenerator {
         if (!file_exists($csvFile)) {
             return '<div class="alert alert-danger">No timetable has been generated yet. Click "Generate Timetable" to create one.</div>';
         }
-
+        
+        // Read the CSV file and group rows by day
         $timetableData = [];
-        if (($handle = fopen($csvFile, "r")) !== FALSE) {
-            // Skip header row
+        if (($handle = fopen($csvFile, "r")) !== false) {
+            // Read and discard the header row
             $header = fgetcsv($handle);
             
-            // Read data into array
-            while (($data = fgetcsv($handle)) !== FALSE) {
-                $day = $data[3]; // Day column
+            // Group rows by day (assuming day is in column index 3)
+            while (($data = fgetcsv($handle)) !== false) {
+                $day = $data[3];
                 $timetableData[$day][] = $data;
             }
             fclose($handle);
         }
-
+        
+        // Get the current page from the URL, default to 1
+        $currentPage = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+        $itemsPerPage = self::ITEMS_PER_PAGE;
+        
+        // Start building the HTML output with a card container
         $html = '<div class="card">
-            <div class="card-body">
-                <h4 class="card-title mb-4">Generated Timetable</h4>
-                <div class="table-responsive">';
-
-        // Create tabs for each day
-        $html .= '<ul class="nav nav-tabs" role="tablist">';
+                    <div class="card-body">
+                        <h4 class="card-title mb-4">Generated Timetable</h4>
+                        <div class="table-responsive">';
+        
+        // Create Bootstrap tabs for each day
         $days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        $html .= '<ul class="nav nav-tabs" role="tablist">';
         foreach ($days as $index => $day) {
             $activeClass = ($index === 0) ? 'active' : '';
             $html .= "<li class='nav-item'>
-                <a class='nav-link $activeClass' data-bs-toggle='tab' href='#$day' role='tab'>$day</a>
-            </li>";
+                        <a class='nav-link $activeClass' data-bs-toggle='tab' href='#$day' role='tab'>$day</a>
+                      </li>";
         }
         $html .= '</ul>';
-
-        // Create tab content
+        
+        // Create the content for each tab (day)
         $html .= '<div class="tab-content">';
         foreach ($days as $index => $day) {
             $activeClass = ($index === 0) ? 'active' : '';
             $html .= "<div class='tab-pane p-3 $activeClass' id='$day' role='tabpanel'>";
             
-            // Create table for each day
-            $html .= '<table class="table table-striped table-bordered">
-                <thead>
-                    <tr>
-                        <th>Time Slot</th>
-                        <th>Unit Code</th>
-                        <th>Unit Name</th>
-                        <th>Lecturer</th>
-                        <th>Room</th>
-                        <th>Clashes</th>
-                    </tr>
-                </thead>
-                <tbody>';
+            // Get all rows for this day
+            $rows = isset($timetableData[$day]) ? $timetableData[$day] : [];
+            $totalRows = count($rows);
+            $totalPages = ($totalRows > 0) ? ceil($totalRows / $itemsPerPage) : 1;
+            $offset = ($currentPage - 1) * $itemsPerPage;
+            $pagedRows = array_slice($rows, $offset, $itemsPerPage);
             
-            if (isset($timetableData[$day])) {
-                // Sort by time slot
-                usort($timetableData[$day], function($a, $b) {
-                    return strcmp($a[4], $b[4]); // Compare time slots
+            // Build the table for the day
+            $html .= '<table class="table table-striped table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Time Slot</th>
+                                <th>Unit Code</th>
+                                <th>Unit Name</th>
+                                <th>Lecturer</th>
+                                <th>Room</th>
+                                <th>Clashes</th>
+                            </tr>
+                        </thead>
+                        <tbody>';
+            if (!empty($pagedRows)) {
+                // Optionally sort the rows by the time slot (assuming index 4 holds the time slot)
+                usort($pagedRows, function($a, $b) {
+                    return strcmp($a[4], $b[4]);
                 });
                 
-                foreach ($timetableData[$day] as $slot) {
+                foreach ($pagedRows as $slot) {
+                    // Optionally add a CSS class if there are clashes (assuming clashes are in index 6)
                     $clashClass = !empty($slot[6]) ? 'class="table-info"' : '';
                     $html .= "<tr $clashClass>
-                        <td>{$slot[4]}</td>  <!-- Time Slot -->
-                        <td>{$slot[0]}</td>  <!-- Unit Code -->
-                        <td>{$slot[1]}</td>  <!-- Unit Name -->
-                        <td>{$slot[2]}</td>  <!-- Lecturer -->
-                        <td>{$slot[5]}</td>  <!-- Room -->
-                        <td>{$slot[6]}</td>  <!-- Clashes -->
-                    </tr>";
+                                <td>{$slot[4]}</td>
+                                <td>{$slot[0]}</td>
+                                <td>{$slot[1]}</td>
+                                <td>{$slot[2]}</td>
+                                <td>{$slot[5]}</td>
+                                <td>{$slot[6]}</td>
+                              </tr>";
                 }
             } else {
                 $html .= "<tr><td colspan='6' class='text-center'>No classes scheduled</td></tr>";
             }
-            
             $html .= '</tbody></table>';
-            $html .= '</div>';
+            
+            // Create pagination links if there is more than one page
+            if ($totalPages > 1) {
+                $html .= '<nav><ul class="pagination">';
+                for ($p = 1; $p <= $totalPages; $p++) {
+                    $active = ($p == $currentPage) ? 'active' : '';
+                    // Append an anchor to jump back to the current day's tab (e.g., "#Monday")
+                    $html .= "<li class='page-item $active'>
+                                <a class='page-link' href='?page=$p#$day'>$p</a>
+                              </li>";
+                }
+                $html .= '</ul></nav>';
+            }
+            
+            $html .= '</div>'; // End of tab-pane for this day
         }
-        $html .= '</div>'; // End tab-content
-        $html .= '</div></div></div>';
+        $html .= '</div>'; // End of tab-content
+        $html .= '</div></div>'; // End of card-body and card
         
         return $html;
     }
-
+    
 
 }
 
@@ -638,6 +666,7 @@ $generator = new TimetableGenerator($db);
 </head>
 
 <body>
+    
     <!-- ============================================================== -->
     <!-- Topbar header - style you can find in pages.scss -->
     <!-- ============================================================== -->
