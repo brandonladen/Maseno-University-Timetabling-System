@@ -227,7 +227,8 @@ include '../assets/components/header.php';
 
 
 
-      echo "<tr> <td>" .$school_id.  "</td>";
+      echo "<tr>";
+      echo "<td><a href='specific_department.php?id=" . $school_id . "'>" . $school_id . "</a></td>";
       echo "<td>" .$school_name."</td>";
       echo "<td>" .$school_shrtname."</td>";
       echo "<td>" .$date_created."</td>";
