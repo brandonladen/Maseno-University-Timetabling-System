@@ -119,28 +119,30 @@ if (isset($_POST['delete-department-btn'])) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php
-                                    $dept_query = "SELECT * FROM school_department_details WHERE school_id = '$school_id'";
-                                    $dept_result = mysqli_query($db, $dept_query);
-                                    
-                                    if ($dept_result && mysqli_num_rows($dept_result) > 0) {
-                                        while ($row = mysqli_fetch_assoc($dept_result)) {
-                                            echo "<tr>";
-                                            echo "<td>" . htmlspecialchars($row['department_id']) . "</td>";
-                                            echo "<td>" . htmlspecialchars($row['date_updated']) . "</td>";
-                                            echo "<td>
-                                                <form method='POST' action=''>
-                                                    <input type='hidden' name='record_id' value='" . htmlspecialchars($row['id']) . "'>
-                                                    <button type='submit' name='delete-department-btn' class='btn btn-danger'
-                                                        onclick='return confirm(\"Are you sure you want to delete this department?\");'>
-                                                        Delete
-                                                    </button>
-                                                </form>
-                                            </td>";
-                                            echo "</tr>";
-                                        }
-                                    }
-                                    ?>
+                                <?php
+$dept_query = "SELECT * FROM school_department_details WHERE school_id = '$school_id'";
+$dept_result = mysqli_query($db, $dept_query);
+
+if ($dept_result && mysqli_num_rows($dept_result) > 0) {
+    while ($row = mysqli_fetch_assoc($dept_result)) {
+        echo "<tr>";
+        // Make department ID a clickable link
+        echo "<td><a href='courses.php?school_id=" . htmlspecialchars($school_id) . "&department_id=" . htmlspecialchars($row['department_id']) . "'>" 
+             . htmlspecialchars($row['department_id']) . "</a></td>";
+        echo "<td>" . htmlspecialchars($row['date_updated']) . "</td>";
+        echo "<td>
+            <form method='POST' action='' class='d-inline'>
+                <input type='hidden' name='record_id' value='" . htmlspecialchars($row['id']) . "'>
+                <button type='submit' name='delete-department-btn' class='btn btn-danger'
+                    onclick='return confirm(\"Are you sure you want to delete this department?\");'>
+                    Delete
+                </button>
+            </form>
+        </td>";
+        echo "</tr>";
+    }
+}
+?>
                                 </tbody>
                             </table>
                         </div>

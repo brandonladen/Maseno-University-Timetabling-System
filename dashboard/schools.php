@@ -71,6 +71,15 @@ if (isset($_POST['delete-school-btn'])) {
   }
 }
 
+
+$count_query = "SELECT COUNT(*) as total_schools FROM `school_details`";
+$stmt = $db->prepare($count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_schools = $row['total_schools'];
+
+
 //create a slug
 function slugify($string) {
   $slug = preg_replace('/[^\p{L}\p{N}]+/u', '-', $string);
@@ -197,6 +206,10 @@ include '../assets/components/header.php';
             <div class="row">
                 <div class="col-12">
 
+                <!-- <div class="card-body">
+                        <h4 class="card-title">Total Schools</h4>
+                        <h2 class="display-4"><?= $total_schools; ?></h2>
+                    </div> -->
                     <div class="card">
                         <div class="card-body">
                             <h5 class="card-title">List of Schools</h5>
@@ -226,14 +239,15 @@ include '../assets/components/header.php';
               $date_created = $row['date_created'];
 
 
-
+    
       echo "<tr>";
       echo "<td><a href='specific_department.php?id=" . $school_id . "'>" . $school_id . "</a></td>";
       echo "<td>" .$school_name."</td>";
       echo "<td>" .$school_shrtname."</td>";
       echo "<td>" .$date_created."</td>";
+
+
       echo "<td>
-        
       <form method ='POST' action=''>
       <input  type='text' hidden name='School_id' value='$school_id'>
       <input type='submit' data-schid='$school_id'  data-schname='$school_name'   data-schshort='$school_shrtname'  value='Edit Details' name='edit-School-btn' class='btn btn-success edit-School-modal-btn m-2'>

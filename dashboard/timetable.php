@@ -675,7 +675,7 @@ class TimetableGenerator {
 function displayAlert($type, $message) {
     return "<div class='alert alert-$type alert-dismissible fade show'>
                 $message
-                <button type='button' class='btn-close' data-bs-dismiss='alert'></button>
+                <button type='button' class='btn-close btn-close-danger' data-bs-dismiss='alert' style='background-color: #dc3545;'></button>
             </div>";
 }
 
@@ -723,7 +723,6 @@ if (isset($_POST['generate-timetable-btn'])) {
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
-
 ?>
 
 <!DOCTYPE html>
