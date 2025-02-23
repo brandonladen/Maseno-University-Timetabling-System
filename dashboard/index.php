@@ -8,6 +8,104 @@ if (!isset($_SESSION['role_id']) || empty($_SESSION['role_id'])) {
   exit;
 }
 
+
+// Query to count schools
+$schools_count_query= "SELECT COUNT(*) as total_schools FROM `school_details`";
+$stmt = $db->prepare($schools_count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_schools = $row['total_schools'];
+
+//Query to count departments
+$departments_count_query= "SELECT COUNT(*) as total_departments FROM `department_details`";
+$stmt = $db->prepare($departments_count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_departments= $row['total_departments'];
+
+
+
+//Query to count courses
+$courses_count_query= "SELECT COUNT(*) as total_courses FROM `course_details`";
+$stmt = $db->prepare($courses_count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_courses = $row['total_courses'];
+
+
+//Query to count units
+$units_count_query= "SELECT COUNT(*) as total_units FROM `unit_details`";
+$stmt = $db->prepare($units_count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_units = $row['total_units'];
+
+
+//Query to count academic year
+$academic_year_count_query= "SELECT COUNT(*) as total_academic_year FROM `academic_year`";
+$stmt = $db->prepare($academic_year_count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_academic_year = $row['total_academic_year'];
+
+//Query to count semesters
+$semester_count_query= "SELECT COUNT(*) as total_semesters FROM `semester_details`";
+$stmt = $db->prepare($semester_count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_semesters = $row['total_semesters'];
+
+
+//Query to count rooms
+$rooms_count_query= "SELECT COUNT(*) as total_rooms FROM `room_details`";
+$stmt = $db->prepare($rooms_count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_rooms = $row['total_rooms'];
+
+
+//Query to count course groups
+$course_groups_count_query= "SELECT COUNT(*) as total_course_groups FROM `course_group_details`";
+$stmt = $db->prepare($course_groups_count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_course_groups = $row['total_course_groups'];
+
+
+//Query to count lecturers
+$lecturers_count_query= "SELECT COUNT(*) AS total_lecturers 
+FROM user_role_details 
+WHERE role_id = 'role002';";
+$stmt = $db->prepare($lecturers_count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_lecturers = $row['total_lecturers'];
+
+
+// Query to count admins
+$admins_count_query= "SELECT COUNT(*) AS total_admins
+FROM user_role_details 
+WHERE role_id = 'role001';";
+$stmt = $db->prepare($admins_count_query);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
+$total_admins = $row['total_admins'];
+
+//Query to count reports
+$reports_count_query= "SELECT COUNT(*) as total_reports FROM `report_details`";
+
+
+
 $name = $_SESSION['salutation'] . " ".$_SESSION['lname'];
 $role_name = $_SESSION['role_name'];
 $mail = $_SESSION['email'];
@@ -180,7 +278,9 @@ include '../assets/components/header.php';
                                     <i class="mdi mdi-book-open-page-variant"></i>
                                 </h1>
                                 <h6 class="text-white">Schools</h6>
+                                <span class="text-white" style="font-size: 24px;"><?php echo $total_schools; ?></span>
                             </div>
+                            
                         </div>
                     </a>
                 </div>
@@ -193,6 +293,7 @@ include '../assets/components/header.php';
                                     <i class="mdi mdi-folder-multiple"></i>
                                 </h1>
                                 <h6 class="text-white">Departments</h6>
+                                <span class="text-white" style="font-size: 24px;"><?php echo $total_departments; ?></span>
                             </div>
                         </div>
                     </a>
@@ -206,6 +307,7 @@ include '../assets/components/header.php';
                                     <i class="mdi mdi-school"></i>
                                 </h1>
                                 <h6 class="text-white">Courses</h6>
+                                <span class="text-white" style="font-size: 24px;"><?php echo $total_courses; ?></span>
                             </div>
                         </div>
                     </a>
@@ -219,6 +321,7 @@ include '../assets/components/header.php';
                                     <i class="mdi mdi-vector-square"></i>
                                 </h1>
                                 <h6 class="text-white">Units</h6>
+                                <span class="text-white" style="font-size: 24px;"><?php echo $total_units ; ?></span>
                             </div>
                         </div>
                     </a>
@@ -232,6 +335,7 @@ include '../assets/components/header.php';
                                     <i class="mdi mdi-calendar-range"></i>
                                 </h1>
                                 <h6 class="text-white">Academic Year</h6>
+                                <span class="text-white" style="font-size: 24px;"><?php echo $total_academic_year; ?></span>
                             </div>
                         </div>
                     </a>
@@ -245,6 +349,7 @@ include '../assets/components/header.php';
                                     <i class="mdi mdi-timetable"></i>
                                 </h1>
                                 <h6 class="text-white">Semesters</h6>
+                                <span class="text-white" style="font-size: 24px;"><?php echo $total_semesters ; ?></span>
                             </div>
                         </div>
                     </a>
@@ -258,6 +363,7 @@ include '../assets/components/header.php';
                                     <i class="mdi mdi-window-open"></i>
                                 </h1>
                                 <h6 class="text-white">Rooms</h6>
+                                <span class="text-white" style="font-size: 24px;"><?php echo $total_rooms; ?></span>
                             </div>
                         </div>
                     </a>
@@ -271,6 +377,7 @@ include '../assets/components/header.php';
                                     <i class="mdi mdi-book-multiple"></i>
                                 </h1>
                                 <h6 class="text-white">Course Groups</h6>
+                                <span class="text-white" style="font-size: 24px;"><?php echo $total_course_groups; ?></span>
                             </div>
                         </div>
                     </a>
@@ -285,6 +392,7 @@ include '../assets/components/header.php';
                                     <i class="mdi mdi-account"></i>
                                 </h1>
                                 <h6 class="text-light">Lecturers</h6>
+                                <span class="text-white" style="font-size: 24px;"><?php echo $total_lecturers; ?></span>
                             </div>
                         </div>
                     </a>
@@ -298,6 +406,7 @@ include '../assets/components/header.php';
                                     <i class="mdi mdi-account-key"></i>
                                 </h1>
                                 <h6 class="text-light">Admins</h6>
+                                <span class="text-white" style="font-size: 24px;"><?php echo $total_admins; ?></span>
                             </div>
                         </div>
                     </a>
@@ -306,7 +415,7 @@ include '../assets/components/header.php';
                 <div class="col-md-4">
                     <a href="./timetable.php">
                         <div class="card card-hover">
-                            <div class="box bg-primary text-center">
+                            <div class="box bg-success text-center">
                                 <h1 class="font-light text-white">
                                     <i class="mdi mdi-calendar-clock"></i>
                                 </h1>
@@ -324,6 +433,7 @@ include '../assets/components/header.php';
                                     <i class="fa fa-file-alt"></i>
                                 </h1>
                                 <h6 class="text-white">Reports</h6>
+                                <span class="text-white" style="font-size: 24px;"></span>
                             </div>
                         </div>
                     </a>

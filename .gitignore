@@ -1,0 +1,20 @@
+# Compiled output
+dist/
+tmp/
+out-tsc/
+bazel-out/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Mac OS
+.DS_Store
+
+# Editor files
+*.swp
+*.swo
+dashboard/timetable.csv
+dashboard/unit_lecturer_details.csv
+server.php
